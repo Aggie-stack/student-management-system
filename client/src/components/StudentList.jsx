@@ -1,40 +1,59 @@
 import { useEffect, useState } from "react";
 import API from "../api";
-import { FaEdit, FaTrash, FaSearch } from "react-icons/fa";
 
-function StudentList({ refresh }) {
+import StudentTable from "./StudentTable";
+import SearchFilter from "./SearchFilter";
+import EditStudentModal from "./EditStudentModal";
+import PaymentHistoryModal from "./PaymentHistoryModal";
+import DeleteModal from "./DeleteModal";
+
+function StudentList({ refresh, triggerRefresh }) {
   const [students, setStudents] = useState([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [membershipFilter, setMembershipFilter] = useState("All");
+  const [modeFilter, setModeFilter] = useState("All");
+  const [levelFilter, setLevelFilter] = useState("All");
 
   const [editStudent, setEditStudent] = useState(null);
   const [deleteStudent, setDeleteStudent] = useState(null);
+
+  const [paymentHistory, setPaymentHistory] = useState([]);
+  const [selectedStudent, setSelectedStudent] = useState(null);
+
+  const [editPayment, setEditPayment] = useState(null);
+
+  const [editStep, setEditStep] = useState(1);
+
+  const [paymentData, setPaymentData] = useState({
+    id: null,
+    amount: "",
+    date_paid: "",
+    duration: "",
+  });
 
   useEffect(() => {
     fetchStudents();
   }, [refresh]);
 
   const fetchStudents = async () => {
-    const res = await API.get("/students");
-    setStudents(res.data);
+    try {
+      const res = await API.get("/students");
+      setStudents(res.data);
+    } catch {
+      alert("Failed to fetch students");
+    }
   };
 
-const [editStep, setEditStep] = useState(1); 
- const [paymentData, setPaymentData] = useState({
-  amount: "",
-  date_paid: "",
-  duration: ""
-});
-
-  // ================= EDIT =================
   const openEditModal = (student) => {
     setEditStudent({ ...student });
-    setEditStep(1)
+    setEditStep(1);
+
     setPaymentData({
+      id: student.payment_id || null,
       amount: student.amount || "",
       date_paid: student.date_paid || "",
-      duration: student.duration || ""
+      duration: student.duration || "",
     });
   };
 
@@ -43,279 +62,149 @@ const [editStep, setEditStep] = useState(1);
     setEditStep(2);
   };
 
-  const handleSavePayment = async () => {
-  await API.post("/payments", {
-    student_id: editStudent.id,
-    amount: paymentData.amount,
-    date_paid: paymentData.date_paid,
-    duration: paymentData.duration
-  });
+  const handleSaveAll = async () => {
+  try {
+    await API.put(`/students/${editStudent.id}`, editStudent);
+
+    await API.post("/payments/upsert", {
+      id: paymentData.id,
+      student_id: editStudent.id,
+      amount: paymentData.amount,
+      date_paid: paymentData.date_paid,
+      duration: paymentData.duration,
+    });
 
     setEditStudent(null);
     setEditStep(1);
+
+    setPaymentData({
+      id: null,
+      amount: "",
+      date_paid: "",
+      duration: "",
+    });
+
     fetchStudents();
+    triggerRefresh();
+
+  } catch (err) {
+    console.log(err);
+    alert("Save failed");
+  }
+};
+
+  const openPaymentHistory = async (student) => {
+    setSelectedStudent(student);
+    const res = await API.get(`/payments/${student.id}`);
+    setPaymentHistory(res.data);
   };
 
-  // ================= DELETE =================
-  const openDeleteModal = (student) => {
-    setDeleteStudent(student);
-  }; 
+  const updatePayment = async () => {
+    await API.put(`/payments/${editPayment.id}`, editPayment);
+
+    setEditPayment(null);
+
+    const res = await API.get(`/payments/${selectedStudent.id}`);
+    setPaymentHistory(res.data);
+
+    fetchStudents();
+    triggerRefresh();
+  };
+
+  const deletePayment = async (id) => {
+    await API.delete(`/payments/${id}`);
+
+    const res = await API.get(`/payments/${selectedStudent.id}`);
+    setPaymentHistory(res.data);
+
+    fetchStudents();
+    triggerRefresh();
+  };
 
   const confirmDelete = async () => {
     await API.delete(`/students/${deleteStudent.id}`);
     setDeleteStudent(null);
     fetchStudents();
+    triggerRefresh();
   };
 
-  // ================= FILTER =================
   const filteredStudents = students.filter((s) => {
     const text = search.toLowerCase();
 
-    const matchesSearch =
-      s.name?.toLowerCase().includes(text) ||
-      s.course?.toLowerCase().includes(text) ||
-      s.phone?.toLowerCase().includes(text) ||
-      String(s.id).includes(text) ||
-      s.status?.toLowerCase().includes(text);
-
-    const matchesStatus =
-      statusFilter === "All" || s.status === statusFilter;
-
-    const matchesMembership =
-      membershipFilter === "All" ||
-      (membershipFilter === "Yes" && s.membership) ||
-      (membershipFilter === "No" && !s.membership);
-
-    return matchesSearch && matchesStatus && matchesMembership;
+    return (
+      !text ||
+      (
+        s.name?.toLowerCase().includes(text) ||
+        s.course?.toLowerCase().includes(text) ||
+        String(s.phone || ""). toLowerCase().includes(text)
+      )
+     ) &&
+      (statusFilter === "All" || s.status === statusFilter) &&
+      (membershipFilter === "All" ||
+        (membershipFilter === "Yes" && s.membership) ||
+        (membershipFilter === "No" && !s.membership)) && 
+        (modeFilter === "All" || s.mode === modeFilter) &&
+        (levelFilter === "All" || s.level === levelFilter);
   });
 
   return (
     <div>
       <h2>Students List</h2>
 
-      {/* SEARCH + FILTER */}
-      <div className="search-row">
-        <div className="search-box">
-          <FaSearch className="search-icon" />
-          <input
-            type="text"
-            placeholder="Search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
+      <SearchFilter
+        search={search}
+        setSearch={setSearch}
+        statusFilter={statusFilter}
+        setStatusFilter={setStatusFilter}
+        membershipFilter={membershipFilter}
+        setMembershipFilter={setMembershipFilter}
+        modeFilter={modeFilter}
+        setModeFilter={setModeFilter}
+        levelFilter={levelFilter}
+        setLevelFilter={setLevelFilter}
+      />
 
-        <div>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="search-input"
-          >
-            <option value="All">All Status</option>
-            <option value="Active">Active</option>
-            <option value="Expired">Expired</option>
-            <option value="No Payment">No Payment</option>
-          </select>
+      <StudentTable
+        students={filteredStudents}
+        onHistory={openPaymentHistory}
+        onEdit={openEditModal}
+        onDelete={setDeleteStudent}
+      />
 
-          <select
-            value={membershipFilter}
-            onChange={(e) => setMembershipFilter(e.target.value)}
-            className="search-input"
-          >
-            <option value="All">All Membership</option>
-            <option value="Yes">Members</option>
-            <option value="No">Non Members</option>
-          </select>
-        </div>
-      </div>
-
-      {/* TABLE */}
-      <table>
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Name</th>
-            <th>Course</th>
-            <th>Phone</th>
-            <th>Amount</th>
-            <th>Date Paid</th>
-            <th>Duration</th>
-            <th>Due Date</th>
-            <th>Status</th>
-            <th>Membership</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-
-        <tbody>
-          {filteredStudents.length > 0 ? (
-            filteredStudents.map((s, index) => (
-              <tr key={s.id}>
-                <td>{index + 1}</td>
-                <td>{s.name}</td>
-                <td>{s.course}</td>
-                <td>{s.phone}</td>
-                <td>{s.amount}</td>
-                <td>{s.date_paid}</td>
-                <td>{s.duration}</td>
-                <td>{s.due_date}</td>
-
-                <td>
-                  <span className={`status ${s.status?.toLowerCase().replace(/\s+/g, "")}`}>
-                    {s.status}
-                  </span>
-                </td>
-
-                <td>
-                  <span className={s.membership ? "membership yes" : "membership no"}>
-                    {s.membership ? "Yes" : "No"}
-                  </span>
-                </td>
-
-                <td className="actions-cell">
-                  <button className="icon-btn edit" onClick={() => openEditModal(s)}>
-                    <FaEdit />
-                  </button>
-
-                  <button className="icon-btn delete" onClick={() => openDeleteModal(s)}>
-                    <FaTrash />
-                  </button>
-                </td>
-              </tr>
-            ))
-          ) : (
-            <tr>
-              <td colSpan="7" className="no-results">
-                ❌ No students found
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-
-      {/* ================= EDIT MODAL ================= */}
-     {editStudent && (
-  <div className="modal">
-    <div className="modal-content">
-
-      {/* STEP 1: STUDENT */}
-      {editStep === 1 && (
-        <>
-          <h3>Edit Student</h3>
-
-          <input
-            value={editStudent.name}
-            onChange={(e) =>
-              setEditStudent({ ...editStudent, name: e.target.value })
-            }
-            placeholder="Name"
-          />
-
-          <input
-            value={editStudent.phone}
-            onChange={(e) =>
-              setEditStudent({ ...editStudent, phone: e.target.value })
-            }
-            placeholder="Phone"
-          />
-
-          <input
-            value={editStudent.course}
-            onChange={(e) =>
-              setEditStudent({ ...editStudent, course: e.target.value })
-            }
-            placeholder="Course"
-          />
-
-          <label>
-            Membership:
-            <input
-              type="checkbox"
-              checked={editStudent.membership}
-              onChange={(e) =>
-                setEditStudent({
-                  ...editStudent,
-                  membership: e.target.checked,
-                })
-              }
-            />
-          </label>
-
-          <div className="modal-actions">
-            <button onClick={() => setEditStudent(null)}>Cancel</button>
-            <button onClick={handleUpdateStudent}>
-              Next → Payment
-            </button>
-          </div>
-        </>
+      {editStudent && (
+        <EditStudentModal
+          editStudent={editStudent}
+          setEditStudent={setEditStudent}
+          editStep={editStep}
+          setEditStep={setEditStep}
+          paymentData={paymentData}
+          setPaymentData={setPaymentData}
+          handleUpdateStudent={handleUpdateStudent}
+          handleSaveAll={handleSaveAll}   // ✅ FIXED
+        />
       )}
 
-      {/* STEP 2: PAYMENT */}
-      {editStep === 2 && (
-        <>
-          <h3>Payment Details</h3>
-
-          <input
-            type="number"
-            placeholder="Amount"
-            value={paymentData.amount}
-            onChange={(e) =>
-              setPaymentData({ ...paymentData, amount: e.target.value })
-            }
-          />
-
-          <input
-            type="date"
-            value={paymentData.date_paid}
-            onChange={(e) =>
-              setPaymentData({ ...paymentData, date_paid: e.target.value })
-            }
-          />
-
-          <input
-            type="number"
-            placeholder="Duration (months)"
-            value={paymentData.duration}
-            onChange={(e) =>
-              setPaymentData({ ...paymentData, duration: e.target.value })
-            }
-          />
-
-          <div className="modal-actions">
-            <button onClick={() => setEditStep(1)}>
-              ← Back
-            </button>
-
-            <button onClick={handleSavePayment}>
-              Save All
-            </button>
-          </div>
-        </>
+      {selectedStudent && (
+        <PaymentHistoryModal
+          selectedStudent={selectedStudent}
+          setSelectedStudent={setSelectedStudent}
+          paymentHistory={paymentHistory}
+          editPayment={editPayment}
+          setEditPayment={setEditPayment}
+          updatePayment={updatePayment}
+          deletePayment={deletePayment}
+        />
       )}
 
-    </div>
-  </div>
-)}
-      {/* ================= DELETE MODAL ================= */}
       {deleteStudent && (
-        <div className="modal">
-          <div className="modal-content">
-            <h3>Delete Student</h3>
-            <p>
-              Are you sure you want to delete <b>{deleteStudent.name}</b>?
-            </p>
-
-            <div className="modal-actions">
-              <button onClick={() => setDeleteStudent(null)}>Cancel</button>
-              <button className="danger" onClick={confirmDelete}>
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
+        <DeleteModal
+          deleteStudent={deleteStudent}
+          setDeleteStudent={setDeleteStudent}
+          confirmDelete={confirmDelete}
+        />
       )}
     </div>
   );
 }
 
-export default StudentList; 
+export default StudentList;
