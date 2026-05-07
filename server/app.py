@@ -18,7 +18,7 @@ CORS(app, resources={r"/*": {
     "origins": [
         "http://127.0.0.1:5173",
         "http://localhost:5173",
-        "https://student-management-system-three-kohl.vercel.app/login"
+        "https://student-management-system-three-kohl.vercel.app"
     ],
     "supports_credentials": True,
     "allow_headers": ["Content-Type", "Authorization"],
@@ -105,9 +105,7 @@ def init_db():
 # ---------------- LOGIN (FIXED - WAS MISSING OPTIONS) ----------------
 @app.route("/login", methods=["POST", "OPTIONS"])
 def login():
-    if request.method == "OPTIONS":
-        return jsonify({}), 200
-
+    
     data = request.get_json() or {}
 
     conn = get_db()
@@ -140,9 +138,7 @@ def login():
 @app.route("/students", methods=["POST", "OPTIONS"])
 @token_required
 def add_student():
-    if request.method == "OPTIONS":
-        return jsonify({}), 200
-
+    
     data = request.json
     conn = get_db()
 
@@ -169,9 +165,7 @@ def add_student():
 @app.route("/students", methods=["GET", "OPTIONS"])
 @token_required
 def get_students():
-    if request.method == "OPTIONS":
-        return jsonify({}), 200
-
+    
     conn = get_db()
 
     rows = conn.execute("""
@@ -211,9 +205,7 @@ def get_students():
 @app.route("/students/<int:id>", methods=["GET", "OPTIONS"])
 @token_required
 def get_student(id):
-    if request.method == "OPTIONS":
-        return jsonify({}), 200
-
+    
     conn = get_db()
 
     row = conn.execute(
@@ -231,8 +223,6 @@ def get_student(id):
 @app.route("/students/<int:id>", methods=["PUT", "OPTIONS"])
 @token_required
 def update_student(id):
-    if request.method == "OPTIONS":
-        return jsonify({}), 200
 
     data = request.json
     conn = get_db()
@@ -261,9 +251,7 @@ def update_student(id):
 @app.route("/students/<int:id>", methods=["DELETE", "OPTIONS"])
 @token_required
 def delete_student(id):
-    if request.method == "OPTIONS":
-        return jsonify({}), 200
-
+    
     conn = get_db()
     conn.execute("DELETE FROM payments WHERE student_id=?", (id,))
     conn.execute("DELETE FROM students WHERE id=?", (id,))
@@ -275,9 +263,7 @@ def delete_student(id):
 @app.route("/payments", methods=["POST", "OPTIONS"])
 @token_required
 def add_payment():
-    if request.method == "OPTIONS":
-        return jsonify({}), 200
-
+    
     data = request.json
 
     try:
@@ -310,8 +296,7 @@ def add_payment():
 @app.route("/payments", methods=["GET", "OPTIONS"])
 @token_required
 def get_all_payments():
-    if request.method == "OPTIONS":
-        return jsonify({}), 200
+   
 
     conn = get_db()
 
@@ -327,9 +312,7 @@ def get_all_payments():
 @app.route("/payments/<int:student_id>", methods=["GET", "OPTIONS"])
 @token_required
 def get_payments(student_id):
-    if request.method == "OPTIONS":
-        return jsonify({}), 200
-
+    
     conn = get_db()
 
     rows = conn.execute("""
@@ -345,9 +328,7 @@ def get_payments(student_id):
 @app.route("/payments/<int:id>", methods=["PUT", "OPTIONS"])
 @token_required
 def update_payment(id):
-    if request.method == "OPTIONS":
-        return jsonify({}), 200
-
+    
     data = request.json
 
     paid = datetime.strptime(data["date_paid"], "%Y-%m-%d")
@@ -375,9 +356,7 @@ def update_payment(id):
 @app.route("/payments/<int:id>", methods=["DELETE", "OPTIONS"])
 @token_required
 def delete_payment(id):
-    if request.method == "OPTIONS":
-        return jsonify({}), 200
-
+    
     conn = get_db()
     conn.execute("DELETE FROM payments WHERE id=?", (id,))
     conn.commit()
@@ -388,9 +367,7 @@ def delete_payment(id):
 @app.route("/payments/upsert", methods=["POST", "OPTIONS"])
 @token_required
 def upsert_payment():
-    if request.method == "OPTIONS":
-        return jsonify({}), 
-
+    
     data = request.json
 
     conn = get_db()
@@ -619,4 +596,4 @@ def dashboard():
 # ---------------- RUN ----------------
 if __name__ == "__main__":
     init_db()
-    app.run(debug=True)
+    app.run(debug=True) 
