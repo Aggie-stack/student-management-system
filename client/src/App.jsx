@@ -8,16 +8,15 @@ import Dashboard from "./pages/DashboardPage";
 import Students from "./pages/Students";
 import Payments from "./pages/Payments";
 
-
 function App() {
   return (
     <BrowserRouter>
       <Routes>
 
-        {/* Public Route */}
-        <Route path="/" element={<Login />} />
+        {/* PUBLIC ROUTE */}
+        <Route path="/login" element={<Login />} />
 
-        {/* Protected Layout */}
+        {/* PROTECTED ROUTES */}
         <Route
           path="/"
           element={
@@ -26,17 +25,14 @@ function App() {
             </ProtectedRoute>
           }
         >
-          {/* Default route */}
           <Route index element={<Dashboard />} />
-
-          {/* Pages */}
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="students" element={<Students />} />
           <Route path="payments" element={<Payments />} />
         </Route>
 
-        {/* Fallback */}
-        <Route path="*" element={<Navigate to="/" replace />} />
+        {/* FALLBACK */}
+        <Route path="*" element={<Navigate to="/login" replace />} />
 
       </Routes>
     </BrowserRouter>

@@ -5,25 +5,37 @@ import { useState, useEffect } from "react";
 function MainLayout() {
   const [darkMode, setDarkMode] = useState(false);
 
+  // -------------------------------
+  // LOAD THEME ON FIRST MOUNT
+  // -------------------------------
   useEffect(() => {
-    const saved = localStorage.getItem("theme");
-    if (saved === "dark") {
+    const savedTheme = localStorage.getItem("theme");
+
+    if (savedTheme === "dark") {
       setDarkMode(true);
-      document.body.classList.add("dark");
+    } else {
+      setDarkMode(false);
     }
   }, []);
 
-  const toggleTheme = () => {
-    const newMode = !darkMode;
-    setDarkMode(newMode);
-
-    if (newMode) {
+  // -------------------------------
+  // APPLY THEME WHEN darkMode CHANGES
+  // -------------------------------
+  useEffect(() => {
+    if (darkMode) {
       document.body.classList.add("dark");
       localStorage.setItem("theme", "dark");
     } else {
       document.body.classList.remove("dark");
       localStorage.setItem("theme", "light");
     }
+  }, [darkMode]);
+
+  // -------------------------------
+  // TOGGLE THEME
+  // -------------------------------
+  const toggleTheme = () => {
+    setDarkMode((prev) => !prev);
   };
 
   return (
@@ -31,7 +43,10 @@ function MainLayout() {
       <Sidebar darkMode={darkMode} toggleTheme={toggleTheme} />
 
       <div className="main">
-        <h1 className="page-title">Students Registration & Management System</h1>
+        <h1 className="page-title">
+          Students Registration & Management System
+        </h1>
+
         <Outlet />
       </div>
     </div>
