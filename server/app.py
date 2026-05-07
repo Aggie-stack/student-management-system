@@ -21,6 +21,10 @@ CORS(app, resources={r"/*": {
     "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 }})
 
+@app.route("/")
+def home():
+    return "Backend is running"
+
 # ---------------- GLOBAL OPTIONS FIX (IMPORTANT) ----------------
 @app.before_request
 def handle_options():
