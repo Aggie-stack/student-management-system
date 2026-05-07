@@ -15,7 +15,11 @@ app = Flask(__name__)
 
 # ---------------- CORS FIX ----------------
 CORS(app, resources={r"/*": {
-    "origins": "http://127.0.0.1:5173",
+    "origins": [
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "https://student-management-system-three-kohl.vercel.app/login"
+    ],
     "supports_credentials": True,
     "allow_headers": ["Content-Type", "Authorization"],
     "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
@@ -104,7 +108,7 @@ def login():
     if request.method == "OPTIONS":
         return jsonify({}), 200
 
-    data = request.get_json()
+    data = request.get_json() or {}
 
     conn = get_db()
     user = conn.execute(

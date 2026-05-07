@@ -16,7 +16,7 @@ function Login() {
 
       if (res.data?.token) {
         localStorage.setItem("token", res.data.token);
-        navigate("/");
+        navigate("/dashboard");
       } else {
         alert("Invalid response from server");
       }
