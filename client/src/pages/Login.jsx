@@ -16,14 +16,25 @@ function Login() {
     }
     try {
       setLoading(true);
-      const res = await API.post("/login", { username, password, role });
+
+      // Send login WITHOUT role — let the server tell us the role
+      // This prevents mismatch when user selects wrong role tab
+      const res = await API.post("/login", { username, password });
 
       if (res.data?.token) {
+        const serverRole = res.data.role; // trust the server's role
+
+        // Check if the role they selected matches what the server says
+        if (role !== serverRole) {
+          alert(`This account is registered as "${serverRole}", not "${role}". Logging you in as ${serverRole}.`);
+        }
+
         localStorage.setItem("token", res.data.token);
-        localStorage.setItem("role", role);
+        localStorage.setItem("role", serverRole);
         localStorage.setItem("username", username);
 
-        if (role === "director") navigate("/dashboard");
+        // Navigate based on actual server role
+        if (serverRole === "director") navigate("/dashboard");
         else navigate("/students");
       } else {
         alert("Invalid response from server");
@@ -78,7 +89,7 @@ function Login() {
             <h2 className="login-title">Welcome Back</h2>
             <p className="login-subtitle">Sign in to your account</p>
 
-            {/* ROLE SELECTOR */}
+            {/* ROLE SELECTOR — now just visual, not sent to server */}
             <div className="role-selector">
               {["director", "admin", "receptionist"].map((r) => (
                 <button

@@ -323,8 +323,6 @@ def update_student(id):
 def delete_student(id):
     conn = get_db()
     c    = conn.cursor()
-    # CASCADE on the FK handles payments automatically,
-    # but explicit delete is fine too for clarity
     c.execute("DELETE FROM payments WHERE student_id=%s", (id,))
     c.execute("DELETE FROM students WHERE id=%s", (id,))
     conn.commit()
@@ -473,9 +471,10 @@ def dashboard():
         start_date = datetime(year, 1, 1).date()
         end_date   = datetime(year + 1, 1, 1).date()
 
+    # FIX: cast date_paid TEXT column to date for comparison
     c.execute("""
         SELECT student_id, date_paid, due_date, amount FROM payments
-        WHERE date_paid >= %s AND date_paid < %s
+        WHERE date_paid::date >= %s AND date_paid::date < %s
     """, (start_date, end_date))
     payments = c.fetchall()
 
@@ -543,11 +542,12 @@ def dashboard():
 
     level_gender = [{"name": l["level"], "value": l["count"]} for l in levels]
 
+    # FIX: cast date_paid TEXT column to date for both filtering and DATE_TRUNC
     c.execute("""
         SELECT TO_CHAR(DATE_TRUNC('month', date_paid::date), 'MM') AS month,
                SUM(amount) AS total
         FROM payments
-        WHERE date_paid >= %s AND date_paid < %s
+        WHERE date_paid::date >= %s AND date_paid::date < %s
         GROUP BY DATE_TRUNC('month', date_paid::date)
         ORDER BY DATE_TRUNC('month', date_paid::date)
     """, (start_date, end_date))
@@ -588,19 +588,20 @@ def dashboard_courses():
 
     conn = get_db()
     c    = conn.cursor()
+    # FIX: cast date_paid TEXT column to date for comparison
     c.execute("""
         SELECT
             s.course             AS name,
             COUNT(DISTINCT s.id) AS count
         FROM payments p
         JOIN students s ON s.id = p.student_id
-        WHERE p.date_paid >= %s
-          AND p.date_paid <  %s
+        WHERE p.date_paid::date >= %s
+          AND p.date_paid::date <  %s
           AND s.course IS NOT NULL
           AND s.course != ''
         GROUP BY s.course
         ORDER BY count DESC
-    """, (start_date.isoformat(), end_date.isoformat()))
+    """, (start_date, end_date))
     rows = c.fetchall()
     conn.close()
 
@@ -617,6 +618,7 @@ def dashboard_renewals_due():
 
     conn = get_db()
     c    = conn.cursor()
+    # FIX: cast due_date TEXT column to date for comparison
     c.execute("""
         SELECT
             p.id,
@@ -630,10 +632,10 @@ def dashboard_renewals_due():
             WHERE student_id = p.student_id
             ORDER BY id DESC LIMIT 1
         )
-          AND p.due_date >= %s
-          AND p.due_date <= %s
+          AND p.due_date::date >= %s
+          AND p.due_date::date <= %s
         ORDER BY p.due_date ASC
-    """, (today.isoformat(), window_end.isoformat()))
+    """, (today, window_end))
     rows = c.fetchall()
     conn.close()
 
@@ -656,6 +658,7 @@ def dashboard_recent_payments():
 
     conn = get_db()
     c    = conn.cursor()
+    # FIX: cast date_paid TEXT column to date for correct ordering
     c.execute("""
         SELECT
             p.id,
@@ -666,7 +669,7 @@ def dashboard_recent_payments():
             p.date_paid
         FROM payments p
         JOIN students s ON s.id = p.student_id
-        ORDER BY p.date_paid DESC, p.id DESC
+        ORDER BY p.date_paid::date DESC, p.id DESC
         LIMIT %s
     """, (limit,))
     rows = c.fetchall()
