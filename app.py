@@ -131,6 +131,16 @@ def seed_users():
     conn.close()
 
 
+# ============================================================
+# FIX: Call init_db() and seed_users() at module level so
+# Gunicorn (used on Render) also runs them on startup.
+# Previously they were only inside `if __name__ == "__main__":`
+# which Gunicorn never reaches.
+# ============================================================
+init_db()
+seed_users()
+
+
 # ---------------- LOGIN ----------------
 @app.route("/login", methods=["POST", "OPTIONS"])
 def login():
@@ -471,7 +481,6 @@ def dashboard():
         start_date = datetime(year, 1, 1).date()
         end_date   = datetime(year + 1, 1, 1).date()
 
-    # FIX: cast date_paid TEXT column to date for comparison
     c.execute("""
         SELECT student_id, date_paid, due_date, amount FROM payments
         WHERE date_paid::date >= %s AND date_paid::date < %s
@@ -542,7 +551,6 @@ def dashboard():
 
     level_gender = [{"name": l["level"], "value": l["count"]} for l in levels]
 
-    # FIX: cast date_paid TEXT column to date for both filtering and DATE_TRUNC
     c.execute("""
         SELECT TO_CHAR(DATE_TRUNC('month', date_paid::date), 'MM') AS month,
                SUM(amount) AS total
@@ -588,7 +596,6 @@ def dashboard_courses():
 
     conn = get_db()
     c    = conn.cursor()
-    # FIX: cast date_paid TEXT column to date for comparison
     c.execute("""
         SELECT
             s.course             AS name,
@@ -618,7 +625,6 @@ def dashboard_renewals_due():
 
     conn = get_db()
     c    = conn.cursor()
-    # FIX: cast due_date TEXT column to date for comparison
     c.execute("""
         SELECT
             p.id,
@@ -658,7 +664,6 @@ def dashboard_recent_payments():
 
     conn = get_db()
     c    = conn.cursor()
-    # FIX: cast date_paid TEXT column to date for correct ordering
     c.execute("""
         SELECT
             p.id,
@@ -690,6 +695,4 @@ def dashboard_recent_payments():
 
 # ---------------- RUN ----------------
 if __name__ == "__main__":
-    init_db()
-    seed_users()
     app.run(debug=True)
