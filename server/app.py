@@ -2,14 +2,16 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
-import sqlite3
+import psycopg2
+import psycopg2.extras
 import bcrypt
 import jwt
 import os
 from functools import wraps
 from collections import defaultdict
 
-SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key")
+SECRET_KEY   = os.environ.get("SECRET_KEY", "dev-secret-key")
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
 app = Flask(__name__)
 
@@ -37,8 +39,7 @@ def handle_options():
 
 # ---------------- DB ----------------
 def get_db():
-    conn = sqlite3.connect("students.db")
-    conn.row_factory = sqlite3.Row
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
     return conn
 
 
@@ -73,46 +74,35 @@ def init_db():
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id       SERIAL PRIMARY KEY,
             username TEXT UNIQUE,
             password TEXT,
-            role TEXT DEFAULT 'admin'
+            role     TEXT DEFAULT 'admin'
         )
     """)
-
-    try:
-        c.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'admin'")
-    except Exception:
-        pass
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS students (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT,
-            phone TEXT,
-            course TEXT,
+            id         SERIAL PRIMARY KEY,
+            name       TEXT,
+            phone      TEXT,
+            course     TEXT,
             membership INTEGER DEFAULT 0,
-            email TEXT,
-            gender TEXT,
-            mode TEXT,
-            level TEXT
+            email      TEXT,
+            gender     TEXT,
+            mode       TEXT,
+            level      TEXT
         )
     """)
 
-    for col in ["mode TEXT", "level TEXT"]:
-        try:
-            c.execute(f"ALTER TABLE students ADD COLUMN {col}")
-        except Exception:
-            pass
-
     c.execute("""
         CREATE TABLE IF NOT EXISTS payments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            student_id INTEGER,
-            amount INTEGER,
-            date_paid TEXT,
-            duration INTEGER,
-            due_date TEXT
+            id         SERIAL PRIMARY KEY,
+            student_id INTEGER REFERENCES students(id) ON DELETE CASCADE,
+            amount     INTEGER,
+            date_paid  TEXT,
+            duration   INTEGER,
+            due_date   TEXT
         )
     """)
 
@@ -123,19 +113,18 @@ def init_db():
 # ---------------- SEED USERS ----------------
 def seed_users():
     conn = get_db()
+    c    = conn.cursor()
     users = [
         ("director", "director123", "director"),
         ("admin",    "admin123",    "admin"),
         ("recep",    "recep123",    "receptionist"),
     ]
     for username, password, role in users:
-        existing = conn.execute(
-            "SELECT id FROM users WHERE username=?", (username,)
-        ).fetchone()
-        if not existing:
+        c.execute("SELECT id FROM users WHERE username=%s", (username,))
+        if not c.fetchone():
             hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-            conn.execute(
-                "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
+            c.execute(
+                "INSERT INTO users (username, password, role) VALUES (%s, %s, %s)",
                 (username, hashed, role)
             )
     conn.commit()
@@ -151,10 +140,9 @@ def login():
         return jsonify({"error": "Username and password required"}), 400
 
     conn = get_db()
-    user = conn.execute(
-        "SELECT * FROM users WHERE username=?",
-        (data["username"],)
-    ).fetchone()
+    c    = conn.cursor()
+    c.execute("SELECT * FROM users WHERE username=%s", (data["username"],))
+    user = c.fetchone()
     conn.close()
 
     if not user:
@@ -164,7 +152,7 @@ def login():
         return jsonify({"error": "Invalid credentials"}), 401
 
     role_requested = data.get("role", "")
-    user_role = user["role"] or "admin"
+    user_role      = user["role"] or "admin"
 
     if role_requested and user_role != role_requested:
         return jsonify({"error": f"This account is not registered as {role_requested}"}), 401
@@ -187,14 +175,16 @@ def login():
 @app.route("/change-password", methods=["POST", "OPTIONS"])
 @token_required
 def change_password():
-    data = parse_json()
+    data    = parse_json()
     user_id = request.user.get("user_id")
 
     if not data.get("old_password") or not data.get("new_password"):
         return jsonify({"error": "Both old and new password required"}), 400
 
     conn = get_db()
-    user = conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+    c    = conn.cursor()
+    c.execute("SELECT * FROM users WHERE id=%s", (user_id,))
+    user = c.fetchone()
 
     if not user:
         conn.close()
@@ -205,7 +195,7 @@ def change_password():
         return jsonify({"error": "Current password is incorrect"}), 400
 
     hashed = bcrypt.hashpw(data["new_password"].encode(), bcrypt.gensalt()).decode()
-    conn.execute("UPDATE users SET password=? WHERE id=?", (hashed, user_id))
+    c.execute("UPDATE users SET password=%s WHERE id=%s", (hashed, user_id))
     conn.commit()
     conn.close()
 
@@ -219,15 +209,17 @@ def add_student():
     data = parse_json()
 
     required = ["name", "phone", "course", "gender", "mode", "level"]
-    missing = [f for f in required if not data.get(f)]
+    missing  = [f for f in required if not data.get(f)]
     if missing:
         return jsonify({"error": f"Missing required fields: {', '.join(missing)}"}), 400
 
     conn = get_db()
+    c    = conn.cursor()
     try:
-        cursor = conn.execute("""
+        c.execute("""
             INSERT INTO students (name, phone, course, email, gender, membership, mode, level)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
         """, (
             data["name"],
             data["phone"],
@@ -238,9 +230,10 @@ def add_student():
             data["mode"],
             data["level"],
         ))
-        student_id = cursor.lastrowid
+        student_id = c.fetchone()["id"]
         conn.commit()
     except Exception as e:
+        conn.rollback()
         conn.close()
         return jsonify({"error": f"Database error: {str(e)}"}), 500
 
@@ -252,33 +245,35 @@ def add_student():
 @token_required
 def get_students():
     conn = get_db()
-    rows = conn.execute("""
+    c    = conn.cursor()
+    c.execute("""
         SELECT s.*,
-               p.id as payment_id,
+               p.id        AS payment_id,
                p.amount,
                p.date_paid,
                p.duration,
                p.due_date
         FROM students s
         LEFT JOIN payments p
-        ON p.id = (
-            SELECT id FROM payments
-            WHERE student_id = s.id
-            ORDER BY id DESC LIMIT 1
-        )
-    """).fetchall()
+          ON p.id = (
+              SELECT id FROM payments
+              WHERE student_id = s.id
+              ORDER BY id DESC LIMIT 1
+          )
+    """)
+    rows = c.fetchall()
     conn.close()
 
-    today = datetime.now().date()
+    today  = datetime.now().date()
     result = []
-    for r in rows:
-        row = dict(r)
-        if row.get("due_date"):
-            due = datetime.strptime(row["due_date"], "%Y-%m-%d").date()
-            row["status"] = "Active" if due >= today else "Expired"
+    for row in rows:
+        r = dict(row)
+        if r.get("due_date"):
+            due      = datetime.strptime(r["due_date"], "%Y-%m-%d").date()
+            r["status"] = "Active" if due >= today else "Expired"
         else:
-            row["status"] = "No Payment"
-        result.append(row)
+            r["status"] = "No Payment"
+        result.append(r)
 
     return jsonify(result)
 
@@ -287,7 +282,9 @@ def get_students():
 @token_required
 def get_student(id):
     conn = get_db()
-    row = conn.execute("SELECT * FROM students WHERE id=?", (id,)).fetchone()
+    c    = conn.cursor()
+    c.execute("SELECT * FROM students WHERE id=%s", (id,))
+    row  = c.fetchone()
     conn.close()
     if not row:
         return jsonify({"error": "Student not found"}), 404
@@ -299,10 +296,12 @@ def get_student(id):
 def update_student(id):
     data = parse_json()
     conn = get_db()
-    conn.execute("""
+    c    = conn.cursor()
+    c.execute("""
         UPDATE students
-        SET name=?, phone=?, course=?, email=?, gender=?, membership=?, mode=?, level=?
-        WHERE id=?
+        SET name=%s, phone=%s, course=%s, email=%s,
+            gender=%s, membership=%s, mode=%s, level=%s
+        WHERE id=%s
     """, (
         data["name"],
         data["phone"],
@@ -323,8 +322,11 @@ def update_student(id):
 @token_required
 def delete_student(id):
     conn = get_db()
-    conn.execute("DELETE FROM payments WHERE student_id=?", (id,))
-    conn.execute("DELETE FROM students WHERE id=?", (id,))
+    c    = conn.cursor()
+    # CASCADE on the FK handles payments automatically,
+    # but explicit delete is fine too for clarity
+    c.execute("DELETE FROM payments WHERE student_id=%s", (id,))
+    c.execute("DELETE FROM students WHERE id=%s", (id,))
     conn.commit()
     conn.close()
     return jsonify({"message": "Deleted"})
@@ -340,10 +342,12 @@ def add_payment():
         duration = int(data["duration"])
         due      = paid + relativedelta(months=duration)
 
-        conn   = get_db()
-        cursor = conn.execute("""
+        conn = get_db()
+        c    = conn.cursor()
+        c.execute("""
             INSERT INTO payments (student_id, amount, date_paid, duration, due_date)
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id
         """, (
             data["student_id"],
             data["amount"],
@@ -351,11 +355,10 @@ def add_payment():
             duration,
             due.strftime("%Y-%m-%d")
         ))
-        payment_id = cursor.lastrowid
+        payment_id = c.fetchone()["id"]
 
-        student = conn.execute(
-            "SELECT name FROM students WHERE id=?", (data["student_id"],)
-        ).fetchone()
+        c.execute("SELECT name FROM students WHERE id=%s", (data["student_id"],))
+        student = c.fetchone()
 
         conn.commit()
         conn.close()
@@ -381,7 +384,9 @@ def add_payment():
 @token_required
 def get_all_payments():
     conn = get_db()
-    rows = conn.execute("SELECT * FROM payments ORDER BY id DESC").fetchall()
+    c    = conn.cursor()
+    c.execute("SELECT * FROM payments ORDER BY id DESC")
+    rows = c.fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
 
@@ -390,9 +395,9 @@ def get_all_payments():
 @token_required
 def get_payments(student_id):
     conn = get_db()
-    rows = conn.execute("""
-        SELECT * FROM payments WHERE student_id=? ORDER BY id DESC
-    """, (student_id,)).fetchall()
+    c    = conn.cursor()
+    c.execute("SELECT * FROM payments WHERE student_id=%s ORDER BY id DESC", (student_id,))
+    rows = c.fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
 
@@ -404,8 +409,10 @@ def update_payment(id):
     paid = datetime.strptime(data["date_paid"], "%Y-%m-%d")
     due  = paid + relativedelta(months=int(data["duration"]))
     conn = get_db()
-    conn.execute("""
-        UPDATE payments SET amount=?, date_paid=?, duration=?, due_date=? WHERE id=?
+    c    = conn.cursor()
+    c.execute("""
+        UPDATE payments SET amount=%s, date_paid=%s, duration=%s, due_date=%s
+        WHERE id=%s
     """, (data["amount"], data["date_paid"], data["duration"], due.strftime("%Y-%m-%d"), id))
     conn.commit()
     conn.close()
@@ -416,7 +423,8 @@ def update_payment(id):
 @token_required
 def delete_payment(id):
     conn = get_db()
-    conn.execute("DELETE FROM payments WHERE id=?", (id,))
+    c    = conn.cursor()
+    c.execute("DELETE FROM payments WHERE id=%s", (id,))
     conn.commit()
     conn.close()
     return jsonify({"message": "Deleted"})
@@ -426,18 +434,20 @@ def delete_payment(id):
 @token_required
 def upsert_payment():
     data = parse_json()
-    conn = get_db()
     paid = datetime.strptime(data["date_paid"], "%Y-%m-%d")
     due  = paid + relativedelta(months=int(data["duration"]))
+    conn = get_db()
+    c    = conn.cursor()
 
     if data.get("id"):
-        conn.execute("""
-            UPDATE payments SET amount=?, date_paid=?, duration=?, due_date=? WHERE id=?
+        c.execute("""
+            UPDATE payments SET amount=%s, date_paid=%s, duration=%s, due_date=%s
+            WHERE id=%s
         """, (data["amount"], data["date_paid"], data["duration"], due.strftime("%Y-%m-%d"), data["id"]))
     else:
-        conn.execute("""
+        c.execute("""
             INSERT INTO payments (student_id, amount, date_paid, duration, due_date)
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s)
         """, (data["student_id"], data["amount"], data["date_paid"], data["duration"], due.strftime("%Y-%m-%d")))
 
     conn.commit()
@@ -450,6 +460,7 @@ def upsert_payment():
 @token_required
 def dashboard():
     conn  = get_db()
+    c     = conn.cursor()
     today = datetime.now().date()
 
     year  = request.args.get("year",  type=int) or today.year
@@ -462,10 +473,11 @@ def dashboard():
         start_date = datetime(year, 1, 1).date()
         end_date   = datetime(year + 1, 1, 1).date()
 
-    payments = conn.execute("""
+    c.execute("""
         SELECT student_id, date_paid, due_date, amount FROM payments
-        WHERE date_paid >= ? AND date_paid < ?
-    """, (start_date, end_date)).fetchall()
+        WHERE date_paid >= %s AND date_paid < %s
+    """, (start_date, end_date))
+    payments = c.fetchall()
 
     if month and len(payments) == 0:
         conn.close()
@@ -482,10 +494,11 @@ def dashboard():
     if not student_ids:
         students = []
     else:
-        placeholders = ",".join(["?"] * len(student_ids))
-        students = conn.execute(f"""
-            SELECT id, gender, mode, level FROM students WHERE id IN ({placeholders})
-        """, student_ids).fetchall()
+        c.execute("""
+            SELECT id, gender, mode, level FROM students
+            WHERE id = ANY(%s)
+        """, (student_ids,))
+        students = c.fetchall()
 
     history = defaultdict(list)
     for p in payments:
@@ -519,17 +532,26 @@ def dashboard():
             if item["name"] == key:
                 item["value"] += 1
 
-    levels = conn.execute(f"""
-        SELECT level, COUNT(*) as count FROM students
-        WHERE id IN ({','.join(['?']*len(student_ids))}) GROUP BY level
-    """, student_ids).fetchall() if student_ids else []
+    if student_ids:
+        c.execute("""
+            SELECT level, COUNT(*) AS count FROM students
+            WHERE id = ANY(%s) GROUP BY level
+        """, (student_ids,))
+        levels = c.fetchall()
+    else:
+        levels = []
 
     level_gender = [{"name": l["level"], "value": l["count"]} for l in levels]
 
-    income_data = conn.execute("""
-        SELECT strftime('%m', date_paid) as month, SUM(amount) as total
-        FROM payments WHERE date_paid >= ? AND date_paid < ? GROUP BY month
-    """, (start_date, end_date)).fetchall()
+    c.execute("""
+        SELECT TO_CHAR(DATE_TRUNC('month', date_paid::date), 'MM') AS month,
+               SUM(amount) AS total
+        FROM payments
+        WHERE date_paid >= %s AND date_paid < %s
+        GROUP BY DATE_TRUNC('month', date_paid::date)
+        ORDER BY DATE_TRUNC('month', date_paid::date)
+    """, (start_date, end_date))
+    income_data = c.fetchall()
 
     month_names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
     classes = [{"name": month_names[int(r["month"]) - 1], "students": r["total"]} for r in income_data]
@@ -553,23 +575,6 @@ def dashboard():
 @app.route("/dashboard/courses", methods=["GET"])
 @token_required
 def dashboard_courses():
-    """
-    Returns each course with the number of DISTINCT students who made
-    a payment in the selected period.
-
-    Query params (mirrors /dashboard):
-        year  (int, default current year)
-        month (int, optional) — filters to that specific month only
-
-    Examples:
-        GET /dashboard/courses                   -> full current year
-        GET /dashboard/courses?year=2026         -> full year 2026
-        GET /dashboard/courses?year=2026&month=5 -> May 2026 only
-
-    COUNT(DISTINCT s.id) guarantees:
-        - Student ID 5 + Student ID 9 both on "Computer Classes" -> count 2
-        - Student ID 5 with 3 renewal payments in the period     -> count 1
-    """
     today = datetime.now().date()
     year  = request.args.get("year",  type=int) or today.year
     month = request.args.get("month", type=int)
@@ -582,19 +587,21 @@ def dashboard_courses():
         end_date   = datetime(year + 1, 1, 1).date()
 
     conn = get_db()
-    rows = conn.execute("""
+    c    = conn.cursor()
+    c.execute("""
         SELECT
             s.course             AS name,
             COUNT(DISTINCT s.id) AS count
         FROM payments p
         JOIN students s ON s.id = p.student_id
-        WHERE p.date_paid >= ?
-          AND p.date_paid <  ?
+        WHERE p.date_paid >= %s
+          AND p.date_paid <  %s
           AND s.course IS NOT NULL
           AND s.course != ''
         GROUP BY s.course
         ORDER BY count DESC
-    """, (start_date.isoformat(), end_date.isoformat())).fetchall()
+    """, (start_date.isoformat(), end_date.isoformat()))
+    rows = c.fetchall()
     conn.close()
 
     return jsonify([{"name": r["name"], "count": r["count"]} for r in rows])
@@ -604,20 +611,13 @@ def dashboard_courses():
 @app.route("/dashboard/renewals-due", methods=["GET"])
 @token_required
 def dashboard_renewals_due():
-    """
-    Returns students whose latest payment is expiring within the next
-    `days` days (default 7). Uses the most recent payment per student
-    so a student with multiple renewals only appears once.
-
-    Query param:
-        days (int, default 7) — lookahead window
-    """
     days       = request.args.get("days", default=7, type=int)
     today      = datetime.now().date()
     window_end = today + timedelta(days=days)
 
     conn = get_db()
-    rows = conn.execute("""
+    c    = conn.cursor()
+    c.execute("""
         SELECT
             p.id,
             s.name,
@@ -630,10 +630,11 @@ def dashboard_renewals_due():
             WHERE student_id = p.student_id
             ORDER BY id DESC LIMIT 1
         )
-          AND p.due_date >= ?
-          AND p.due_date <= ?
+          AND p.due_date >= %s
+          AND p.due_date <= %s
         ORDER BY p.due_date ASC
-    """, (today.isoformat(), window_end.isoformat())).fetchall()
+    """, (today.isoformat(), window_end.isoformat()))
+    rows = c.fetchall()
     conn.close()
 
     return jsonify([
@@ -651,17 +652,11 @@ def dashboard_renewals_due():
 @app.route("/dashboard/recent-payments", methods=["GET"])
 @token_required
 def dashboard_recent_payments():
-    """
-    Returns the most recent payments across all students, joined with
-    student name and course.
-
-    Query param:
-        limit (int, default 10) — how many rows to return
-    """
     limit = request.args.get("limit", default=10, type=int)
 
     conn = get_db()
-    rows = conn.execute("""
+    c    = conn.cursor()
+    c.execute("""
         SELECT
             p.id,
             s.name  AS student_name,
@@ -672,8 +667,9 @@ def dashboard_recent_payments():
         FROM payments p
         JOIN students s ON s.id = p.student_id
         ORDER BY p.date_paid DESC, p.id DESC
-        LIMIT ?
-    """, (limit,)).fetchall()
+        LIMIT %s
+    """, (limit,))
+    rows = c.fetchall()
     conn.close()
 
     return jsonify([
