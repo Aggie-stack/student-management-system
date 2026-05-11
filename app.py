@@ -69,6 +69,7 @@ def token_required(f):
 
 # ---------------- INIT DB ----------------
 def init_db():
+    print("INIT DB RUNNING")
     conn = get_db()
     c = conn.cursor()
 
