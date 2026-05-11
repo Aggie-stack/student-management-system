@@ -1,66 +1,432 @@
 import { useState } from "react";
-import AddStudent from "../components/AddStudent";
-import AddPayment from "../components/AddPayment";
+import RegisterStudent from "../components/RegisterStudent";
+import RenewalPayment from "../components/RenewalPayment";
 import StudentList from "../components/StudentList";
+import API from "../api";
+
+// ─── Receipt Modal ─────────────────────────────────────────────────────────────
+
+function ReceiptModal({ receipt, onClose }) {
+
+  const getReceiptHTML = () => `
+    <html>
+      <head>
+        <title>Receipt ${receipt.receiptNo}</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body {
+            font-family: 'Inter', Arial, sans-serif;
+            padding: 36px 32px;
+            color: #18181b;
+            background: #fff;
+            width: 420px;
+          }
+          .header {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding-bottom: 18px;
+            margin-bottom: 20px;
+            border-bottom: 3px solid #dc2626;
+          }
+          .logo {
+            width: 60px;
+            height: 60px;
+            object-fit: contain;
+            flex-shrink: 0;
+          }
+          .school-info { flex: 1; }
+          .school-name {
+            font-size: 16px;
+            font-weight: 800;
+            color: #dc2626;
+            line-height: 1.2;
+          }
+          .school-tagline {
+            font-size: 11px;
+            color: #71717a;
+            font-style: italic;
+            margin-top: 2px;
+          }
+          .receipt-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: #18181b;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-top: 4px;
+          }
+          .receipt-no {
+            text-align: center;
+            background: #fef2f2;
+            border: 1px dashed #dc2626;
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 22px;
+            font-size: 14px;
+            color: #dc2626;
+            font-weight: 700;
+            letter-spacing: 1px;
+          }
+          .row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #f4f4f5;
+            font-size: 13px;
+          }
+          .label { color: #71717a; font-weight: 500; }
+          .value { font-weight: 600; color: #18181b; }
+          .total-box {
+            background: #18181b;
+            color: white;
+            padding: 14px 16px;
+            border-radius: 10px;
+            display: flex;
+            justify-content: space-between;
+            margin-top: 18px;
+            font-size: 15px;
+            font-weight: 700;
+          }
+          .due-box {
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            color: #15803d;
+            padding: 10px 16px;
+            border-radius: 10px;
+            display: flex;
+            justify-content: space-between;
+            margin-top: 10px;
+            font-size: 13px;
+            font-weight: 600;
+          }
+          .footer {
+            text-align: center;
+            margin-top: 26px;
+            font-size: 11px;
+            color: #a1a1aa;
+            border-top: 1px solid #f4f4f5;
+            padding-top: 14px;
+            line-height: 1.8;
+          }
+          .footer strong {
+            display: block;
+            color: #dc2626;
+            font-size: 12px;
+            margin-bottom: 2px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <img class="logo" src="${receipt.logoUrl}" alt="Logo" />
+          <div class="school-info">
+            <div class="school-name">Riseway Training College</div>
+            <div class="school-tagline">"Your Future, Our Mission"</div>
+            <div class="receipt-title">Payment Receipt</div>
+          </div>
+        </div>
+
+        <div class="receipt-no">${receipt.receiptNo}</div>
+
+        <div class="row">
+          <span class="label">Student Name</span>
+          <span class="value">${receipt.studentName}</span>
+        </div>
+        <div class="row">
+          <span class="label">Student ID</span>
+          <span class="value">#${receipt.studentId}</span>
+        </div>
+        <div class="row">
+          <span class="label">Date Paid</span>
+          <span class="value">${receipt.datePaid}</span>
+        </div>
+        <div class="row">
+          <span class="label">Duration</span>
+          <span class="value">${receipt.duration} Month(s)</span>
+        </div>
+        <div class="row">
+          <span class="label">Issued At</span>
+          <span class="value">${receipt.issuedAt}</span>
+        </div>
+
+        <div class="total-box">
+          <span>Amount Paid</span>
+          <span>KSh ${Number(receipt.amount).toLocaleString()}</span>
+        </div>
+
+        <div class="due-box">
+          <span>Subscription Due</span>
+          <span>${receipt.dueDate}</span>
+        </div>
+
+        <div class="footer">
+          <strong>Riseway Training College</strong>
+          "Your Future, Our Mission"<br/>
+          Thank you for your payment. Please keep this receipt for your records.
+        </div>
+      </body>
+    </html>
+  `;
+
+  const handlePrint = () => {
+    const w = window.open("", "_blank", "width=480,height=720");
+    w.document.write(getReceiptHTML());
+    w.document.close();
+    w.focus();
+    w.print();
+    w.close();
+  };
+
+  const handleDownload = () => {
+    const blob = new Blob([getReceiptHTML()], { type: "text/html" });
+    const url  = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href     = url;
+    link.download = `Receipt-${receipt.receiptNo}.html`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal" style={{ maxWidth: 480 }}>
+
+        {/* ── Modal Header ── */}
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          paddingBottom: 16,
+          marginBottom: 20,
+          borderBottom: "2px solid #dc2626",
+        }}>
+          <img
+            src="/logo.png"
+            alt="Riseway Logo"
+            style={{ width: 48, height: 48, objectFit: "contain", borderRadius: 8 }}
+            onError={(e) => { e.target.style.display = "none"; }}
+          />
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: "#dc2626", lineHeight: 1.2 }}>
+              Riseway Training College
+            </div>
+            <div style={{ fontSize: 11, color: "#71717a", fontStyle: "italic" }}>
+              "Your Future, Our Mission"
+            </div>
+          </div>
+        </div>
+
+        {/* ── Receipt Badge ── */}
+        <div style={{
+          textAlign: "center",
+          background: "#fef2f2",
+          border: "1px dashed #dc2626",
+          borderRadius: 8,
+          padding: "10px",
+          marginBottom: 20,
+          fontSize: 14,
+          fontWeight: 700,
+          color: "#dc2626",
+          letterSpacing: 1,
+        }}>
+          {receipt.receiptNo}
+        </div>
+
+        {/* ── Receipt Rows ── */}
+        {[
+          ["Student Name", receipt.studentName],
+          ["Student ID",   `#${receipt.studentId}`],
+          ["Amount",       `KSh ${Number(receipt.amount).toLocaleString()}`],
+          ["Date Paid",    receipt.datePaid],
+          ["Duration",     `${receipt.duration} Month(s)`],
+          ["Due Date",     receipt.dueDate],
+          ["Issued At",    receipt.issuedAt],
+        ].map(([label, value]) => (
+          <div key={label} style={{
+            display: "flex",
+            justifyContent: "space-between",
+            padding: "8px 0",
+            borderBottom: "1px solid #f4f4f5",
+            fontSize: 13,
+          }}>
+            <span style={{ color: "#71717a", fontWeight: 500 }}>{label}</span>
+            <span style={{ fontWeight: 600, color: "#18181b" }}>{value}</span>
+          </div>
+        ))}
+
+        {/* ── Amount Total ── */}
+        <div style={{
+          background: "#18181b",
+          color: "white",
+          padding: "13px 16px",
+          borderRadius: 10,
+          display: "flex",
+          justifyContent: "space-between",
+          marginTop: 16,
+          fontSize: 15,
+          fontWeight: 700,
+        }}>
+          <span>Amount Paid</span>
+          <span>KSh {Number(receipt.amount).toLocaleString()}</span>
+        </div>
+
+        {/* ── Due Date ── */}
+        <div style={{
+          background: "#f0fdf4",
+          border: "1px solid #bbf7d0",
+          color: "#15803d",
+          padding: "10px 16px",
+          borderRadius: 10,
+          display: "flex",
+          justifyContent: "space-between",
+          marginTop: 10,
+          fontSize: 13,
+          fontWeight: 600,
+        }}>
+          <span>Subscription Due</span>
+          <span>{receipt.dueDate}</span>
+        </div>
+
+        {/* ── Action Buttons ── */}
+        <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
+          <button onClick={handlePrint}    style={{ flex: 1, background: "#18181b" }}>🖨️ Print</button>
+          <button onClick={handleDownload} style={{ flex: 1, background: "#15803d" }}>⬇️ Download</button>
+          <button onClick={onClose}        style={{ flex: 1, background: "#71717a" }}>Close</button>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+
+// ─── Students Page ─────────────────────────────────────────────────────────────
 
 function Students() {
-  const [refresh, setRefresh] = useState(0);
-  const [showStudentModal, setShowStudentModal] = useState(false);
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [refresh, setRefresh]                   = useState(0);
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const [showRenewalModal, setShowRenewalModal]   = useState(false);
+  const [receipt, setReceipt]                   = useState(null);
 
-  const triggerRefresh = () => {
-    setRefresh((r) => r + 1);
+  const triggerRefresh = () => setRefresh((r) => r + 1);
+
+  // Shared helper — fetches latest payment and builds a receipt object
+  const buildReceipt = async (studentId) => {
+    const [payRes, stuRes] = await Promise.all([
+      API.get(`/payments/${studentId}`),
+      API.get(`/students/${studentId}`),
+    ]);
+
+    const payments = payRes.data;
+    const student  = stuRes.data;
+
+    if (payments && payments.length > 0) {
+      const latest = payments[0];
+      return {
+        receiptNo:   `REC-${String(latest.id).padStart(4, "0")}`,
+        studentName: student.name,
+        studentId:   studentId,
+        amount:      latest.amount,
+        datePaid:    latest.date_paid,
+        duration:    latest.duration,
+        dueDate:     latest.due_date,
+        issuedAt:    new Date().toLocaleString(),
+        logoUrl:     window.location.origin + "/logo.png",
+      };
+    }
+    return null;
+  };
+
+  // Called by RegisterStudent after student + payment are saved
+  const handleStudentAdded = async (studentId) => {
+    try {
+      const r = await buildReceipt(studentId);
+      if (r) setReceipt(r);
+    } catch (err) {
+      console.error("Could not load receipt data", err);
+    }
+    triggerRefresh();
+    setShowRegisterModal(false);
+  };
+
+  // Called by RenewalPayment after a renewal payment is saved
+  const handleRenewalAdded = async (studentId) => {
+    try {
+      const r = await buildReceipt(studentId);
+      if (r) setReceipt(r);
+    } catch (err) {
+      console.error("Could not load renewal receipt data", err);
+    }
+    triggerRefresh();
+    setShowRenewalModal(false);
   };
 
   return (
     <div className="page-container">
 
-      <div className="top-actions">
-        <button onClick={() => setShowStudentModal(true)}>
-          + Add Student
-        </button>
+      <h1 className="page-title">Student Registration & Management System</h1>
 
-        <button onClick={() => setShowPaymentModal(true)}>
-          + Add Payment
+      {/* ── Top Buttons ── */}
+      <div className="top-actions">
+        <button onClick={() => setShowRegisterModal(true)}>
+          + Register Student
+        </button>
+        <button
+          onClick={() => setShowRenewalModal(true)}
+          style={{ background: "#15803d" }}
+        >
+          ↻ Renew Student
         </button>
       </div>
 
-      {showStudentModal && (
+      {/* ── Register Modal ── */}
+      {showRegisterModal && (
         <div className="modal-overlay">
           <div className="modal">
-            <AddStudent
-              onStudentAdded={() => {
-                triggerRefresh();
-                setShowStudentModal(false);
-              }}
-            />
-            <button onClick={() => setShowStudentModal(false)}>
-              Close
+            <RegisterStudent onStudentAdded={handleStudentAdded} />
+            <button
+              onClick={() => setShowRegisterModal(false)}
+              style={{ marginTop: 10, background: "#71717a", width: "100%" }}
+            >
+              Cancel
             </button>
           </div>
         </div>
       )}
 
-      {showPaymentModal && (
+      {/* ── Renewal Modal ── */}
+      {showRenewalModal && (
         <div className="modal-overlay">
           <div className="modal">
-            <AddPayment
-              onPaymentAdded={() => {
-                triggerRefresh();
-                setShowPaymentModal(false);
-              }}
-            />
-            <button onClick={() => setShowPaymentModal(false)}>
-              Close
+            <RenewalPayment onRenewalAdded={handleRenewalAdded} />
+            <button
+              onClick={() => setShowRenewalModal(false)}
+              style={{ marginTop: 10, background: "#71717a", width: "100%" }}
+            >
+              Cancel
             </button>
           </div>
         </div>
       )}
 
+      {/* ── Receipt Modal — appears after register or renewal ── */}
+      {receipt && (
+        <ReceiptModal
+          receipt={receipt}
+          onClose={() => setReceipt(null)}
+        />
+      )}
+
+      {/* ── Student List ── */}
       <StudentList
         refresh={refresh}
         triggerRefresh={triggerRefresh}
       />
+
     </div>
   );
 }
